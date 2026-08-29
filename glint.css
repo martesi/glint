@@ -1,0 +1,23 @@
+/* Standalone CSS owned and applied by Glint. */
+
+main:is(.main-surface, [data-app-shell-main-surface], [class*="_MainContentSurface_"]) {
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+main:is(.main-surface, [data-app-shell-main-surface], [class*="_MainContentSurface_"]) > [class*="_MainContentClip_"] {
+  border-radius: 0 !important;
+}
+
+main [class*="_MainContentTopFade_"] {
+  background: none !important;
+}
+
+main [class*="bg-gradient-to-t"][class*="inset-x-0"][class*="bottom-0"] {
+  background: none !important;
+}
+
+:is(.composer-surface-chrome, [class*="_ComposerLayoutRoot_"], [data-composer-surface-variant][data-composer-radius-variant]) {
+  box-shadow: none !important;
+}
