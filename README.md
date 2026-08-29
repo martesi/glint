@@ -58,6 +58,10 @@ The included CSS targets the main content surface, its rounded split corner, rel
 
 The selectors refer to ChatGPT's internal renderer markup and may need maintenance after a ChatGPT update. This is not an official ChatGPT extension API.
 
+## Reference
+
+Inspired by [Codex-Dream-Skin](https://github.com/Fei-Away/Codex-Dream-Skin).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
