@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
+import { execFile as execFileCallback } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_PORT = 9335;
@@ -11,6 +13,7 @@ const DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CSS_FILE = path.join(DIRECTORY, "glint.css");
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost"]);
 const ID_PATTERN = /^[A-Za-z0-9._-]{1,200}$/;
+const execFile = promisify(execFileCallback);
 
 async function main() {
   if (typeof WebSocket !== "function") {
@@ -23,6 +26,7 @@ async function main() {
     return;
   }
 
+  if (options.autoStart) await ensureChatGpt(options.port);
   await new GlintApplier(options).run();
 }
 
@@ -32,10 +36,67 @@ function printHelp() {
     "       [--css-file PATH] [--once] [--browser-id ID] [--interval-ms N]",
     "",
     `Default CSS file: ${DEFAULT_CSS_FILE}`,
-    `Default mode applies once to an existing CDP endpoint on port ${DEFAULT_PORT}.`,
+    `Default mode starts ChatGPT with loopback CDP on port ${DEFAULT_PORT}, then applies once.`,
+    "Use --no-restart to attach without starting ChatGPT.",
     "Use --watch to keep monitoring targets and CSS changes.",
     "Use --port N to change the ChatGPT debugger/CDP port.",
   ].join("\n") + "\n");
+}
+
+async function ensureChatGpt(port) {
+  if (await cdpIsAvailable(port)) {
+    logProcess("using existing ChatGPT CDP endpoint");
+    return;
+  }
+
+  logProcess(`starting ChatGPT with loopback CDP on port ${port}`);
+  await startChatGpt(port);
+
+  const deadline = Date.now() + 45000;
+  while (Date.now() < deadline) {
+    if (await cdpIsAvailable(port)) {
+      logProcess(`ChatGPT CDP is ready on port ${port}`);
+      return;
+    }
+    await delay(500);
+  }
+  throw new Error(
+    `ChatGPT did not expose CDP on port ${port}. If it is already open without CDP, quit it completely and run Glint again.`,
+  );
+}
+
+async function startChatGpt(port) {
+  const powershell = [
+    "$ErrorActionPreference = 'Stop'",
+    "$package = Get-AppxPackage -Name 'OpenAI.Codex' | Select-Object -First 1",
+    "if ($null -eq $package) { throw 'OpenAI.Codex package was not found.' }",
+    "$executable = Join-Path $package.InstallLocation 'app\\ChatGPT.exe'",
+    "if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { throw 'ChatGPT.exe was not found in the OpenAI.Codex package.' }",
+    `$arguments = @('--remote-debugging-address=127.0.0.1','--remote-debugging-port=${port}')`,
+    "Start-Process -FilePath $executable -ArgumentList $arguments | Out-Null",
+  ].join("\n");
+  try {
+    await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", powershell], {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+    });
+  } catch (error) {
+    throw new Error(`ChatGPT could not be started: ${error.stderr?.trim() || error.message}`);
+  }
+}
+
+async function cdpIsAvailable(port) {
+  try {
+    const version = await fetchJson(port, "/json/version");
+    getBrowserId(version, port);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function logProcess(message) {
+  process.stdout.write(`[glint] launch: ${message}\n`);
 }
 
 class GlintApplier {
@@ -400,6 +461,7 @@ function validateWebSocket(rawUrl, port, kind) {
 function parseArgs(argv) {
   const values = {
     once: true,
+    autoStart: true,
     cssFile: DEFAULT_CSS_FILE,
     port: DEFAULT_PORT,
     browserId: null,
@@ -409,6 +471,7 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === "--once") values.once = true;
     else if (arg === "--watch") values.once = false;
+    else if (arg === "--no-restart") values.autoStart = false;
     else if (arg === "--css-file") values.cssFile = path.resolve(requireValue(argv[++index], "css-file"));
     else if (arg === "--port") values.port = parseInteger(argv[++index], "port");
     else if (arg === "--browser-id") values.browserId = requireValue(argv[++index], "browser-id");
