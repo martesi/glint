@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_PORT = 9335;
 const DEFAULT_INTERVAL_MS = 1500;
+const DEFAULT_TARGET_WAIT_MS = 10000;
+const TARGET_POLL_INTERVAL_MS = 250;
 const STYLE_ID = "glint-css";
 const DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CSS_FILE = path.join(DIRECTORY, "glint.css");
@@ -118,10 +120,7 @@ class GlintApplier {
 
     if (this.options.once) {
       try {
-        const result = await this.sync();
-        if (result.targetCount < 1) {
-          throw new Error("No ChatGPT page target was available on the verified CDP port.");
-        }
+        const result = await this.syncOnce();
         this.log("applied", `${result.applied} target(s), ${result.cssLength} CSS characters`);
       } finally {
         await this.closeTargets();
@@ -139,6 +138,22 @@ class GlintApplier {
       await delay(this.options.intervalMs);
     }
     await this.closeTargets();
+  }
+
+  async syncOnce() {
+    const deadline = Date.now() + DEFAULT_TARGET_WAIT_MS;
+    while (true) {
+      const result = await this.sync();
+      if (result.targetCount > 0) return result;
+
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new Error(
+          "No ChatGPT page target was available on the verified CDP port after 10 seconds.",
+        );
+      }
+      await delay(Math.min(TARGET_POLL_INTERVAL_MS, remaining));
+    }
   }
 
   async sync() {
