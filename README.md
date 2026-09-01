@@ -2,7 +2,7 @@
 
 Glint is a small, self-contained CSS applier for the ChatGPT desktop renderer. It uses the renderer's local Chrome DevTools Protocol (CDP) endpoint to install one owned `<style>` element.
 
-By default, Glint checks for an existing endpoint and otherwise finds the installed `OpenAI.Codex` package and starts `ChatGPT.exe` with loopback CDP enabled. It does not forcibly terminate an existing ChatGPT process.
+By default, Glint checks for an existing endpoint and otherwise finds the installed `OpenAI.Codex` package. If ChatGPT is already running from that package without the requested CDP endpoint, Glint restarts it and launches `ChatGPT.exe` with loopback CDP enabled.
 
 Keep the CDP port bound to loopback. CDP provides control over the renderer and should not be exposed to a network interface.
 
@@ -41,7 +41,7 @@ node glint.mjs --browser-id BROWSER_ID
 node glint.mjs --watch --interval-ms 3000
 ```
 
-Use a path valid for the Node.js runtime; for native Windows Node.js this can be `C:\path\to\custom.css`, while WSL uses paths such as `/mnt/c/path/to/custom.css`. `--port` changes the CDP port used for both startup and attachment. `--no-restart` skips automatic startup and only attaches to an existing endpoint. If ChatGPT is already open without CDP, close it completely before running the default mode. `--once` is available as an explicit synonym for the default mode.
+Use a path valid for the Node.js runtime; for native Windows Node.js this can be `C:\path\to\custom.css`, while WSL uses paths such as `/mnt/c/path/to/custom.css`. `--port` changes the CDP port used for both startup and attachment. `--no-restart` skips automatic startup/restart and only attaches to an existing endpoint. `--once` is available as an explicit synonym for the default mode.
 
 ## Scope and side effects
 

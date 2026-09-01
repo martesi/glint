@@ -39,7 +39,7 @@ function printHelp() {
     "",
     `Default CSS file: ${DEFAULT_CSS_FILE}`,
     `Default mode starts ChatGPT with loopback CDP on port ${DEFAULT_PORT}, then applies once.`,
-    "Use --no-restart to attach without starting ChatGPT.",
+    "Use --no-restart to attach without starting or restarting ChatGPT.",
     "Use --watch to keep monitoring targets and CSS changes.",
     "Use --port N to change the ChatGPT debugger/CDP port.",
   ].join("\n") + "\n");
@@ -51,8 +51,8 @@ async function ensureChatGpt(port) {
     return;
   }
 
-  logProcess(`starting ChatGPT with loopback CDP on port ${port}`);
-  await startChatGpt(port);
+  const action = await startChatGpt(port);
+  logProcess(`${action} ChatGPT with loopback CDP on port ${port}`);
 
   const deadline = Date.now() + 45000;
   while (Date.now() < deadline) {
@@ -63,7 +63,7 @@ async function ensureChatGpt(port) {
     await delay(500);
   }
   throw new Error(
-    `ChatGPT did not expose CDP on port ${port}. If it is already open without CDP, quit it completely and run Glint again.`,
+    `ChatGPT did not expose CDP on port ${port} after launch/restart.`,
   );
 }
 
@@ -74,14 +74,24 @@ async function startChatGpt(port) {
     "if ($null -eq $package) { throw 'OpenAI.Codex package was not found.' }",
     "$executable = Join-Path $package.InstallLocation 'app\\ChatGPT.exe'",
     "if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { throw 'ChatGPT.exe was not found in the OpenAI.Codex package.' }",
+    "$processes = @(Get-Process -Name 'ChatGPT' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $executable })",
+    "$action = if ($processes.Count -gt 0) { 'restarted' } else { 'started' }",
+    "if ($processes.Count -gt 0) {",
+    "  $processIds = @($processes | ForEach-Object { $_.Id })",
+    "  $processes | Stop-Process -Force",
+    "  Wait-Process -Id $processIds -Timeout 10 -ErrorAction SilentlyContinue",
+    "}",
     `$arguments = @('--remote-debugging-address=127.0.0.1','--remote-debugging-port=${port}')`,
     "Start-Process -FilePath $executable -ArgumentList $arguments | Out-Null",
+    "Write-Output $action",
   ].join("\n");
   try {
-    await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", powershell], {
-      encoding: "utf8",
-      maxBuffer: 1024 * 1024,
-    });
+    const { stdout } = await execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", powershell],
+      { encoding: "utf8", maxBuffer: 1024 * 1024 },
+    );
+    return stdout.trim() || "started";
   } catch (error) {
     throw new Error(`ChatGPT could not be started: ${error.stderr?.trim() || error.message}`);
   }
