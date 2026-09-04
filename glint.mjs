@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_PORT = 9335;
 const DEFAULT_INTERVAL_MS = 1500;
-const DEFAULT_TARGET_WAIT_MS = 10000;
+const DEFAULT_TARGET_WAIT_MS = 45000;
 const TARGET_POLL_INTERVAL_MS = 250;
 const STYLE_ID = "glint-css";
 const DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
@@ -159,7 +159,7 @@ class GlintApplier {
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
         throw new Error(
-          "No ChatGPT page target was available on the verified CDP port after 10 seconds.",
+          `No ChatGPT page target was available on the verified CDP port after ${DEFAULT_TARGET_WAIT_MS / 1000} seconds.`,
         );
       }
       await delay(Math.min(TARGET_POLL_INTERVAL_MS, remaining));
