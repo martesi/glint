@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_PORT = 9335;
 const DEFAULT_INTERVAL_MS = 1500;
-const DEFAULT_TARGET_WAIT_MS = 45000;
+const DEFAULT_TARGET_WAIT_MS = 20000;
 const TARGET_POLL_INTERVAL_MS = 250;
 const STYLE_ID = "glint-css";
 const DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
