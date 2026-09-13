@@ -128,41 +128,13 @@ async function applyToTarget(target, cssText) {
       ws.addEventListener("error", () => finish(reject, new Error("CDP WebSocket open failed")), { once: true });
     });
 
-    const result = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => finish(reject, new Error("CDP command timed out: Runtime.evaluate")), 10000);
-      const finish = (callback, value) => {
-        clearTimeout(timeout);
-        ws.removeEventListener("message", onMessage);
-        ws.removeEventListener("error", onError);
-        ws.removeEventListener("close", onClose);
-        callback(value);
-      };
-      const onMessage = (event) => {
-        let message;
-        try {
-          message = JSON.parse(String(event.data));
-        } catch {
-          finish(reject, new Error("CDP returned invalid JSON"));
-          return;
-        }
-        if (message?.id !== 1) return;
-        if (message.error) {
-          finish(reject, new Error(`${message.error.message ?? "CDP command failed"} (${message.error.code ?? "unknown"})`));
-          return;
-        }
-        finish(resolve, message.result ?? {});
-      };
-      const onError = () => finish(reject, new Error("CDP WebSocket failed"));
-      const onClose = () => finish(reject, new Error("CDP WebSocket closed"));
-
-      ws.addEventListener("message", onMessage);
-      ws.addEventListener("error", onError, { once: true });
-      ws.addEventListener("close", onClose, { once: true });
-      ws.send(JSON.stringify({
-        id: 1,
-        method: "Runtime.evaluate",
-        params: { expression: createApplySource(cssText) },
-      }));
+    await cdpCommand(ws, 1, "Runtime.enable");
+    await cdpCommand(ws, 2, "Page.enable");
+    await cdpCommand(ws, 3, "Page.addScriptToEvaluateOnNewDocument", {
+      source: createApplySource(cssText),
+    });
+    const result = await cdpCommand(ws, 4, "Runtime.evaluate", {
+      expression: createApplySource(cssText),
     });
 
     if (result.exceptionDetails) {
@@ -174,6 +146,45 @@ async function applyToTarget(target, cssText) {
   } finally {
     try { ws.close(); } catch {}
   }
+}
+
+function cdpCommand(ws, id, method, params) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => finish(reject, new Error(`CDP command timed out: ${method}`)), 10000);
+    const finish = (callback, value) => {
+      clearTimeout(timeout);
+      ws.removeEventListener("message", onMessage);
+      ws.removeEventListener("error", onError);
+      ws.removeEventListener("close", onClose);
+      callback(value);
+    };
+    const onMessage = (event) => {
+      let message;
+      try {
+        message = JSON.parse(String(event.data));
+      } catch {
+        finish(reject, new Error("CDP returned invalid JSON"));
+        return;
+      }
+      if (message?.id !== id) return;
+      if (message.error) {
+        finish(reject, new Error(`${message.error.message ?? "CDP command failed"} (${message.error.code ?? "unknown"})`));
+        return;
+      }
+      finish(resolve, message.result ?? {});
+    };
+    const onError = () => finish(reject, new Error("CDP WebSocket failed"));
+    const onClose = () => finish(reject, new Error("CDP WebSocket closed"));
+
+    ws.addEventListener("message", onMessage);
+    ws.addEventListener("error", onError, { once: true });
+    ws.addEventListener("close", onClose, { once: true });
+    try {
+      ws.send(JSON.stringify({ id, method, params }));
+    } catch (error) {
+      finish(reject, error);
+    }
+  });
 }
 
 function createApplySource(cssText) {
