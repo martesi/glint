@@ -152,14 +152,20 @@ class GlintApplier {
 
   async syncOnce() {
     const deadline = Date.now() + DEFAULT_TARGET_WAIT_MS;
+    let lastError;
+
     while (true) {
-      const result = await this.sync();
-      if (result.targetCount > 0) return result;
+      try {
+        const result = await this.sync();
+        if (result.targetCount > 0) return result;
+      } catch (error) {
+        lastError = error;
+      }
 
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
         throw new Error(
-          `No ChatGPT page target was available on the verified CDP port after ${DEFAULT_TARGET_WAIT_MS / 1000} seconds.`,
+          `ChatGPT CDP was not ready after ${DEFAULT_TARGET_WAIT_MS / 1000} seconds${lastError ? `: ${lastError.message}` : "."}`,
         );
       }
       await delay(Math.min(TARGET_POLL_INTERVAL_MS, remaining));
