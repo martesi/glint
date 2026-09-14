@@ -32,7 +32,3 @@ body:has(main [class*="electron:bg-surface"]) :is(
 :is(.composer-surface-chrome, [class*="_ComposerLayoutRoot_"], [data-composer-surface-variant][data-composer-radius-variant]) {
   box-shadow: none !important;
 }
-
-.text-codex-description {
-  display: none !important;
-}
