@@ -33,6 +33,10 @@ body:has(main [class*="electron:bg-surface"]) :is(
   box-shadow: none !important;
 }
 
-[data-app-action-timeline-scroll] > div > .mt-auto.grid {
+[data-app-shell-header-edge-scroll="true"] [data-app-shell-header-toolbar] > * {
+  background: transparent !important;
+}
+
+[data-app-shell-focus-area="main"] [class*="_ComposerBannerPortal_"] {
   display: none !important;
 }
