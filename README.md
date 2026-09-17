@@ -11,9 +11,10 @@ Apply `glint.css` to the ChatGPT desktop renderer through local CDP (Chrome DevT
 
 ```text
 node glint.mjs
+node glint.mjs new
 ```
 
-Glint uses `127.0.0.1:9335`, starting or restarting ChatGPT with loopback CDP when needed. It applies the CSS to current renderer targets and keeps it active across future documents in those targets.
+`new` invokes ChatGPT's File > New Window menu action and applies the style to that new window. Glint uses `127.0.0.1:9335`, starting or restarting ChatGPT with loopback CDP when needed. Without `new`, it applies the CSS to current renderer targets and keeps it active across future documents in those targets.
 
 Keep the CDP port on loopback only.
 

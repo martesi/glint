@@ -21,16 +21,28 @@ async function main() {
     throw new Error("Glint requires Node.js 22 or newer with global WebSocket support.");
   }
 
-  await ensureChatGpt();
+  const command = process.argv[2];
+  if (process.argv.length > 3 || (command && command !== "new")) {
+    throw new Error("Usage: node glint.mjs [new]");
+  }
+
+  const hadCdp = await ensureChatGpt();
+  let previousTargetIds = new Set();
+  if (command === "new" && hadCdp) {
+    previousTargetIds = new Set((await discoverTargets()).map((target) => target.id));
+    await startNewChatGptWindow();
+    logProcess("opened a new ChatGPT window");
+  }
+
   const cssText = await readCss();
-  const applied = await applyWhenReady(cssText);
+  const applied = await applyWhenReady(cssText, previousTargetIds);
   process.stdout.write(`[glint] applied: ${applied} target(s), ${cssText.length} CSS characters\n`);
 }
 
 async function ensureChatGpt() {
   if (await cdpIsAvailable()) {
     logProcess("using existing ChatGPT CDP endpoint");
-    return;
+    return true;
   }
 
   const action = await startChatGpt();
@@ -40,7 +52,7 @@ async function ensureChatGpt() {
   while (Date.now() < deadline) {
     if (await cdpIsAvailable()) {
       logProcess(`ChatGPT CDP is ready on port ${PORT}`);
-      return;
+      return false;
     }
     await delay(500);
   }
@@ -89,13 +101,136 @@ async function cdpIsAvailable() {
   }
 }
 
-async function applyWhenReady(cssText) {
+async function startNewChatGptWindow() {
+  const targets = await discoverTargets();
+  if (targets.length === 0) throw new Error("No ChatGPT renderer target is available.");
+
+  let lastProbeError;
+  for (const target of targets) {
+    const ws = new WebSocket(validatePageUrl(target));
+    let nextCommandId = 0;
+    const command = (method, params) => cdpCommand(ws, ++nextCommandId, method, params);
+    let ownsApplicationMenu = false;
+
+    try {
+      await waitForWebSocket(ws);
+      await command("Runtime.enable");
+      ownsApplicationMenu = await rendererControlExists(command, "#application-menu-trigger-file-menu");
+      if (!ownsApplicationMenu) continue;
+
+      await clickRendererControl(command, "File", "#application-menu-trigger-file-menu");
+      await clickRendererControl(command, "New Window");
+      return;
+    } catch (error) {
+      if (ownsApplicationMenu) {
+        throw new Error(`ChatGPT File > New Window could not be invoked: ${error.message}`);
+      }
+      lastProbeError = error;
+    } finally {
+      try { ws.close(); } catch {}
+    }
+  }
+
+  throw new Error(
+    `ChatGPT File > New Window could not be invoked: application menu target was not found${lastProbeError ? ` (${lastProbeError.message})` : "."}`,
+  );
+}
+
+async function rendererControlExists(command, selector) {
+  const result = await command("Runtime.evaluate", {
+    expression: `Boolean(document.querySelector(${JSON.stringify(selector)}))`,
+    returnByValue: true,
+  });
+  if (result.exceptionDetails) {
+    const detail = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
+    throw new Error(`Renderer evaluation failed: ${detail}`);
+  }
+  return result.result?.value === true;
+}
+
+async function clickRendererControl(command, label, selector) {
+  const expression = `(() => {
+    const label = ${JSON.stringify(label)};
+    const selector = ${JSON.stringify(selector)};
+    const candidates = selector
+      ? [document.querySelector(selector)]
+      : [...document.querySelectorAll('button,[role="button"],[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"]')];
+    const element = candidates.find((candidate) => candidate?.textContent?.trim() === label);
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  })()`;
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const result = await command("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+    });
+    if (result.exceptionDetails) {
+      const detail = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
+      throw new Error(`Renderer evaluation failed: ${detail}`);
+    }
+    const point = result.result?.value;
+    if (point) {
+      await command("Input.dispatchMouseEvent", {
+        type: "mousePressed",
+        x: point.x,
+        y: point.y,
+        button: "left",
+        clickCount: 1,
+      });
+      await command("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        x: point.x,
+        y: point.y,
+        button: "left",
+        clickCount: 1,
+      });
+      return;
+    }
+    await delay(50);
+  }
+  throw new Error(`ChatGPT renderer control was not found: ${label}`);
+}
+
+async function filterApplicationWindowTargets(targets) {
+  const matches = await Promise.all(targets.map(async (target) => {
+    const ws = new WebSocket(validatePageUrl(target));
+    let nextCommandId = 0;
+    const command = (method, params) => cdpCommand(ws, ++nextCommandId, method, params);
+
+    try {
+      await waitForWebSocket(ws);
+      await command("Runtime.enable");
+      return await rendererControlExists(command, "#application-menu-trigger-file-menu") ? target : null;
+    } finally {
+      try { ws.close(); } catch {}
+    }
+  }));
+  return matches.filter(Boolean);
+}
+
+function waitForWebSocket(ws) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("CDP WebSocket open timed out")), 5000);
+    const finish = (callback, value) => {
+      clearTimeout(timeout);
+      callback(value);
+    };
+    ws.addEventListener("open", () => finish(resolve), { once: true });
+    ws.addEventListener("error", () => finish(reject, new Error("CDP WebSocket open failed")), { once: true });
+  });
+}
+
+async function applyWhenReady(cssText, previousTargetIds = new Set()) {
   const deadline = Date.now() + TARGET_WAIT_MS;
   let lastError;
 
   while (true) {
     try {
-      const targets = await discoverTargets();
+      const discoveredTargets = (await discoverTargets()).filter((target) => !previousTargetIds.has(target.id));
+      const targets = await filterApplicationWindowTargets(discoveredTargets);
       if (targets.length > 0) {
         await Promise.all(targets.map((target) => applyToTarget(target, cssText)));
         return targets.length;
