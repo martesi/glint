@@ -1,12 +1,8 @@
 /* Standalone CSS owned and applied by Glint. */
 
 main:is(.main-surface, [data-app-shell-main-surface], [class*="_MainContentSurface_"]) {
-  background: transparent !important;
+  background-color: color-mix(in oklab, var(--color-surface) 65%, transparent) !important;
   box-shadow: none !important;
-  border-radius: 0 !important;
-}
-
-main:is(.main-surface, [data-app-shell-main-surface], [class*="_MainContentSurface_"]) > [class*="_MainContentClip_"] {
   border-radius: 0 !important;
 }
 
@@ -24,7 +20,7 @@ body:has(main [class*="electron:bg-surface"]) :is(
   main [class*="electron:bg-surface"],
   main [class*="windows:rounded-tl-lg"]
 ) {
-  background: transparent !important;
+  background-color: color-mix(in oklab, var(--color-surface) 65%, transparent) !important;
   box-shadow: none !important;
   border-radius: 0 !important;
 }
