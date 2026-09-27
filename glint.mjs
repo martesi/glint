@@ -14,6 +14,7 @@ const DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const CSS_FILE = path.join(DIRECTORY, "glint.css");
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost"]);
 const ID_PATTERN = /^[A-Za-z0-9._-]{1,200}$/;
+const SPINNER_FRAMES = ["|", "/", "-", "\\"];
 const execFile = promisify(execFileCallback);
 
 async function main() {
@@ -26,37 +27,42 @@ async function main() {
     throw new Error("Usage: node glint.mjs [new]");
   }
 
-  const hadCdp = await ensureChatGpt();
-  let previousTargetIds = new Set();
-  if (command === "new" && hadCdp) {
-    previousTargetIds = new Set((await discoverTargets()).map((target) => target.id));
-    await startNewChatGptWindow();
-    logProcess("opened a new ChatGPT window");
-  }
+  const progress = createProgress("Connecting to ChatGPT");
+  try {
+    const hadCdp = await ensureChatGpt(progress);
+    let previousTargetIds = new Set();
+    if (command === "new" && hadCdp) {
+      progress.update("Opening new ChatGPT window");
+      previousTargetIds = new Set((await discoverTargets()).map((target) => target.id));
+      await startNewChatGptWindow();
+    }
 
-  const cssText = await readCss();
-  const applied = await applyWhenReady(cssText, previousTargetIds);
-  process.stdout.write(`[glint] applied: ${applied} target(s), ${cssText.length} CSS characters\n`);
+    progress.update("Applying style");
+    const cssText = await readCss();
+    const applied = await applyWhenReady(cssText, previousTargetIds);
+    progress.done(`Applied to ${applied} window${applied === 1 ? "" : "s"}`);
+  } catch (error) {
+    progress.clear();
+    throw error;
+  }
 }
 
-async function ensureChatGpt() {
+async function ensureChatGpt(progress) {
   if (await cdpIsAvailable()) {
-    logProcess("using existing ChatGPT CDP endpoint");
     return true;
   }
 
-  const action = await startChatGpt();
-  logProcess(`${action} ChatGPT with loopback CDP on port ${PORT}`);
+  progress.update("Starting ChatGPT");
+  await startChatGpt();
 
   const deadline = Date.now() + 45000;
   while (Date.now() < deadline) {
     if (await cdpIsAvailable()) {
-      logProcess(`ChatGPT CDP is ready on port ${PORT}`);
       return false;
     }
     await delay(500);
   }
-  throw new Error(`ChatGPT did not expose CDP on port ${PORT} after launch/restart.`);
+  throw new Error("ChatGPT did not expose its debug endpoint after launch/restart.");
 }
 
 async function startChatGpt() {
@@ -107,12 +113,11 @@ async function startChatGpt() {
   ].join("\n");
 
   try {
-    const { stdout } = await execFile(
+    await execFile(
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-Command", powershell],
       { encoding: "utf8", maxBuffer: 1024 * 1024 },
     );
-    return stdout.trim() || "started";
   } catch (error) {
     throw new Error(`ChatGPT could not be started: ${error.stderr?.trim() || error.message}`);
   }
@@ -439,8 +444,33 @@ function validateWebSocket(rawUrl) {
   return url.href;
 }
 
-function logProcess(message) {
-  process.stdout.write(`[glint] launch: ${message}\n`);
+function createProgress(initialMessage) {
+  let frame = 0;
+  let message = initialMessage;
+  const render = () => {
+    process.stdout.write(`\r[glint] ${SPINNER_FRAMES[frame++ % SPINNER_FRAMES.length]} ${message}\x1b[K`);
+  };
+  const timer = process.stdout.isTTY ? setInterval(render, 80) : null;
+  if (timer) {
+    render();
+    timer.unref();
+  }
+
+  return {
+    update(nextMessage) {
+      message = nextMessage;
+      if (timer) render();
+    },
+    done(finalMessage) {
+      if (timer) clearInterval(timer);
+      process.stdout.write(`${timer ? "\r" : ""}[glint] ${finalMessage}${timer ? "\x1b[K" : ""}\n`);
+    },
+    clear() {
+      if (!timer) return;
+      clearInterval(timer);
+      process.stdout.write("\r\x1b[K");
+    },
+  };
 }
 
 try {
