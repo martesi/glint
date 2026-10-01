@@ -9,6 +9,11 @@ main :is([class~="bg-surface"], [class*="app-shell-panel-background"]) {
   background: transparent !important;
 }
 
+/* The outer page wraps main; summary panels have their own elevation. */
+:is([class*="_PageSurface_"], main [data-summary-panel-variant]) {
+  box-shadow: none !important;
+}
+
 main [class*="_shell_"] {
   background: transparent !important;
 }
@@ -25,7 +30,8 @@ main [class*="_MainContentTopFade_"] {
   background: none !important;
 }
 
-main [class*="bg-gradient-to-t"][class*="inset-x-0"][class*="bottom-0"] {
+/* The footer fade can sit above the composer rather than at bottom-0. */
+main [class~="bg-gradient-to-t"][class~="inset-x-0"][class~="from-surface"] {
   background: none !important;
 }
 
